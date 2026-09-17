@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::*;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal, Read};
 use std::process::Command;
@@ -9,6 +10,7 @@ use crate::client::TypeSafeClient;
 use crate::formatter::print_pretty_summary;
 use crate::models::{
     Answer, NoulCriteria, NoulQuestion, Question, ScoreQuestion, SystemOneRequest,
+    SystemOneResponse,
 };
 
 #[derive(Args, Debug)]
@@ -41,7 +43,31 @@ pub struct DiffArgs {
     pub quiet: bool,
 
     #[arg(long)]
-    pub json: bool,
+    pub compact: bool,
+}
+
+#[derive(Serialize)]
+pub struct GateResult {
+    pub passed: bool,
+    pub verdict: &'static str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub failures: Vec<String>,
+    pub metrics: GateMetrics,
+    pub elapsed_ms: u128,
+}
+
+#[derive(Serialize)]
+pub struct GateMetrics {
+    pub fulfills_prompt: f64,
+    pub is_scope_clean: f64,
+    pub regression_risk: f64,
+}
+
+#[derive(Serialize)]
+pub struct DiffResponseEnvelope {
+    pub gate: GateResult,
+    #[serde(flatten)]
+    pub response: SystemOneResponse,
 }
 
 fn get_git_diff(staged: bool, revision: Option<&str>, path_filter: Option<&str>, include_untracked: bool) -> Result<String> {
@@ -162,11 +188,6 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
 
     let (res, elapsed) = client.evaluate(&req).await?;
 
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&res)?);
-        return Ok(());
-    }
-
     let fulfills = match res.answers.get("fulfills_prompt") {
         Some(Answer::Noul(n)) => n.noul,
         _ => 0.0,
@@ -185,6 +206,17 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
     let risk_ok = risk < args.max_risk;
     let passed = fulfills_ok && clean_ok && risk_ok;
 
+    let mut failures = Vec::new();
+    if !fulfills_ok {
+        failures.push(format!("fulfills_prompt={:.2} (< {:.2})", fulfills, args.fulfills_threshold));
+    }
+    if !clean_ok {
+        failures.push(format!("is_scope_clean={:.2} (< {:.2})", clean, args.clean_threshold));
+    }
+    if !risk_ok {
+        failures.push(format!("regression_risk={:.2} (>= {:.2})", risk, args.max_risk));
+    }
+
     if args.quiet {
         println!("fulfills={:.2} clean={:.2} risk={:.2}", fulfills, clean, risk);
         if !passed {
@@ -202,33 +234,32 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
             println!("{}", "✘ Verification Gate Failed: Address issues before shipping.".bright_red().bold());
             std::process::exit(1);
         }
+        return Ok(());
+    }
+
+    let envelope = DiffResponseEnvelope {
+        gate: GateResult {
+            passed,
+            verdict: if passed { "PASS" } else { "FAIL" },
+            failures,
+            metrics: GateMetrics {
+                fulfills_prompt: fulfills,
+                is_scope_clean: clean,
+                regression_risk: risk,
+            },
+            elapsed_ms: elapsed,
+        },
+        response: res,
+    };
+
+    if args.compact {
+        println!("{}", serde_json::to_string(&envelope)?);
     } else {
-        if passed {
-            println!(
-                "DIFF GATE ✔ PASS: fulfills={:.2}, clean={:.2}, risk={:.2} [{}ms]",
-                fulfills, clean, risk, elapsed
-            );
-        } else {
-            let mut failures = Vec::new();
-            if !fulfills_ok {
-                failures.push(format!("fulfills={:.2} (< {:.2})", fulfills, args.fulfills_threshold));
-            }
-            if !clean_ok {
-                failures.push(format!("clean={:.2} (< {:.2})", clean, args.clean_threshold));
-            }
-            if !risk_ok {
-                failures.push(format!("risk={:.2} (>= {:.2})", risk, args.max_risk));
-            }
-            println!(
-                "DIFF GATE ✘ FAIL [{}]: fulfills={:.2}, clean={:.2}, risk={:.2} [{}ms]",
-                failures.join(", "),
-                fulfills,
-                clean,
-                risk,
-                elapsed
-            );
-            std::process::exit(1);
-        }
+        println!("{}", serde_json::to_string_pretty(&envelope)?);
+    }
+
+    if !passed {
+        std::process::exit(1);
     }
 
     Ok(())

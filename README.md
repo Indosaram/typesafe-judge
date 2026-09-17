@@ -2,22 +2,16 @@
 
 Fast, typed AI decision engine for coding tasks, verification gates, and agent workflows, powered by **TypeSafe System One (`Jev`)**.
 
-Instead of waiting for slow, expensive, and uncalibrated text generation from autoregressive LLMs (System Two), `typesafe-judge` evaluates code state, choices, diffs, and hypotheses to return **calibrated probabilities**, **confidence scores**, and **rigidly typed answers** in milliseconds.
+Instead of waiting for slow, expensive, and uncalibrated text generation from autoregressive LLMs (System Two), `typesafe-judge` evaluates code state, choices, diffs, and hypotheses to return **calibrated probabilities**, **confidence scores**, and **rigidly typed JSON answers** in milliseconds.
 
 ## Features
 
 - **Blazingly Fast**: Returns in ~200–500ms with zero token generation latency.
-- **Calibrated Probabilities**: True mathematical probabilities ($0.0 \dots 1.0$) and confidence metrics.
-- **Git Diff Gate**: Automatic CI / pre-commit verification checking prompt fulfillment, scope cleanliness, and regression risk.
-## Output Modes (Token Optimization)
-
-By default, `typesafe-judge` outputs a **dense, single-line format** specifically optimized to save LLM context window tokens:
-
-- **Default (Compact)**: 1 single line containing all key decision metrics (~10–25 tokens instead of 250+ tokens).
-- **`--quiet` / `-q`**: Zero-noise output returning only the raw value (e.g. `0.990` or `arc_swap`). Ideal for shell script variables.
-- **`--json`**: Structured JSON payload for programmatic consumption.
-- **`--pretty`**: Visual ANSI colors with Unicode progress bars for human interactive terminals.
-- **Exit Code Integration**: Noul and Diff commands exit with code `0` (pass) or `1` (fail) based on thresholds, making them one-line gates for bash pipelines.
+- **Native JSON First**: Outputs clean, structured JSON by default—100% machine-readable with zero ad-hoc formatting translation.
+- **Git Diff Gate**: Automatic CI / pre-commit verification checking prompt fulfillment, scope cleanliness, and regression risk with structured pass/fail verdict and exit codes.
+- **Automatic Key Resolution**: Seamless 4-tier fallback: `--api-key` → `TYPESAFE_API_KEY` env → `.env` file → `~/.config/typesafe/api_key`.
+- **Transient Error Retry**: Automatic exponential backoff on HTTP 429 (rate limits) and 529 (overload).
+- **Human Visual Mode**: Pass `--pretty` when you want colorful ANSI progress bars in an interactive terminal.
 
 ---
 
@@ -51,15 +45,16 @@ claude plugin install typesafe@typesafe-ai
 npx skills add Indosaram/typesafe-judge --skill typesafe-ai -g
 ```
 
-### Configuration
+---
 
-Export your TypeSafe API key:
+## Output Modes
 
-```bash
-export TYPESAFE_API_KEY="your_api_key_here"
-```
+`typesafe-judge` is designed first and foremost for **agents and automated workflows**:
 
-Or pass `--api-key <KEY>` to any command.
+1. **Default (Standard JSON)**: Outputs the full, typed TypeSafe JSON response. Zero translation loss, zero hallucination risk, native for LLM parsing.
+2. **`--compact`**: Outputs single-line minified JSON for minimal token usage.
+3. **`--quiet` / `-q`**: Outputs only the scalar winner or metric (e.g. `sqlite` or `0.990`) for shell script variable assignment.
+4. **`--pretty`**: Visual ANSI colors with progress bars for human eyes in interactive terminals.
 
 ---
 
@@ -74,14 +69,28 @@ typesafe-judge choice \
   --state "High read / low write catalog cache in Rust with 10k RPS" \
   --instructions "Which concurrency pattern best fits this scenario?" \
   --option "arc_swap:Atomic pointer swap on write with lock-free reads" \
-  --option "rwlock:Standard std::sync::RwLock" \
+  --option "rwlock:Standard std::sync::RwLock with reader contention" \
   --option "mutex:Standard std::sync::Mutex"
 ```
 
-**Quiet mode (outputs only winner key, perfect for shell assignment):**
-```bash
-BEST_PAT=$(typesafe-judge choice -s "..." -o "arc_swap:..." -o "rwlock:..." -q)
-echo "Selected: $BEST_PAT"
+**JSON Output:**
+```json
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "choice": {
+      "type": "choice",
+      "choice": "arc_swap",
+      "confidence": 0.99,
+      "probabilities": {
+        "arc_swap": 1.0,
+        "mutex": 0.0,
+        "rwlock": 0.0
+      }
+    }
+  },
+  "usage": { "input_tokens": 316, "output_tokens": 34 }
+}
 ```
 
 ### 2. `noul` — Boolean Condition & Probability Gate
@@ -90,10 +99,8 @@ Evaluates a yes/no condition and returns the calibrated probability $P(\text{yes
 
 ```bash
 typesafe-judge noul \
-  --state "$(cat src/lib.rs)" \
+  --file src/lib.rs \
   --instructions "Does this module handle graceful shutdown properly?" \
-  --true-desc "Explicitly intercepts SIGINT/SIGTERM and cancels child tasks" \
-  --false-desc "Drops immediately or leaves background workers orphaned" \
   --threshold 0.70
 ```
 
@@ -105,11 +112,9 @@ Rates state along descriptive, ordered levels.
 
 ```bash
 typesafe-judge score \
-  --state "$(git diff)" \
-  --instructions "Rate the potential blast radius of these changes" \
-  --level "Negligible: localized fix with zero external impact" \
-  --level "Moderate: touches shared interface, requires client testing" \
-  --level "Severe: breaking database schema or wire protocol change"
+  --file docs/migration.md \
+  --instructions "Rate operational migration complexity" \
+  --level "Trivial" --level "Moderate" --level "High complexity"
 ```
 
 ### 4. `diff` — Git Verification Gate
@@ -125,27 +130,22 @@ Queries Jev for:
 2. `is_scope_clean`: Is the diff free of unrelated changes and accidental churn? ($P \ge 0.50$)
 3. `regression_risk`: Score ($< 1.5$)
 
-Exits `0` on pass, `1` on fail.
-
-### 5. `eval` — Speculative Fan-Out Batch
-
-Executes an arbitrary multi-question JSON payload in a single parallel API call.
-
-```bash
-typesafe-judge eval --file request.json
-# or
-cat request.json | typesafe-judge eval
-```
-
----
-
-## Agent Integration
-
-Add `typesafe-judge` to your agent workflows (OMO, Claude Code, Codex, CI):
-
-```bash
-# Verify changes before asking for human review
-typesafe-judge diff -p "Fix issue #42" || echo "Fix failed verification gate"
+Returns a structured `gate` envelope with verdict and metrics, exiting `0` on pass and `1` on fail:
+```json
+{
+  "gate": {
+    "passed": true,
+    "verdict": "PASS",
+    "metrics": {
+      "fulfills_prompt": 0.92,
+      "is_scope_clean": 0.88,
+      "regression_risk": 0.59
+    },
+    "elapsed_ms": 495
+  },
+  "model": "jev-1.13.0",
+  "answers": { ... }
+}
 ```
 
 ---

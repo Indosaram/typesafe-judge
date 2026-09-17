@@ -4,7 +4,7 @@ license: MIT
 description: >
   Execute high-confidence coding decisions with TypeSafe System One (Jev) via
   the typesafe-judge CLI. Use for architecture choices, debugging hypothesis
-  ranking, and git diff verification gates without slow LLM text generation.
+  ranking, and git diff verification gates returning structured JSON.
 ---
 
 # TypeSafe AI (`typesafe-judge` CLI)
@@ -16,6 +16,7 @@ probabilities and typed decisions in milliseconds rather than generating text.
 **PRIMARY DIRECTIVE**:
 Do NOT write ad-hoc HTTP `fetch` scripts or install SDKs.
 Invoke the globally installed **`typesafe-judge`** CLI binary directly via tool execution.
+All commands output **clean, structured JSON by default** for seamless agent consumption.
 
 ---
 
@@ -48,7 +49,7 @@ git diff | typesafe-judge diff --prompt "Refactor auth"
 ---
 
 ### A. `choice` — Multi-Candidate Architecture Selection
-Picks the best candidate and outputs winning choice, probability distribution, and confidence.
+Picks the best candidate and outputs standard TypeSafe JSON:
 
 ```bash
 typesafe-judge choice \
@@ -59,15 +60,24 @@ typesafe-judge choice \
   --option "actor:Channel-based single worker actor"
 ```
 
-### Output & Token Discipline
-By default, `typesafe-judge` outputs a **dense single-line format** (~10–25 tokens) to prevent LLM context bloating.
-- **Default (Compact)**: `CHOICE [choice] opt (p=94%, conf=0.92) | other=0.06 [500ms]`
-- **Quiet (`-q`)**: Returns only the winning value (`arc_swap`, `0.990`). Use this when setting shell variables.
-- **Visual (`--pretty`)**: Use only when interactive visual progress bars are requested by a human.
+**JSON Output:**
+```json
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "choice": {
+      "type": "choice",
+      "choice": "arc_swap",
+      "confidence": 0.99,
+      "probabilities": { "arc_swap": 1.0, "rwlock": 0.0, "actor": 0.0 }
+    }
+  }
+}
+```
 
 **Confidence Routing Rules:**
 - `confidence >= 0.85`: High confidence. Proceed immediately with implementation.
-- `0.60 <= confidence < 0.85`: Moderate confidence. Log trade-offs and proceed with winner.
+- `0.60 <= confidence < 0.85`: Moderate confidence. Proceed with winner.
 - `confidence < 0.60`: Low confidence / neck-and-neck trade-off. Stop and ask the user (`ask_user_question`).
 
 ---
@@ -79,8 +89,6 @@ Evaluates a yes/no condition and returns the calibrated probability $P(\text{yes
 typesafe-judge noul \
   --file src/lib.rs \
   --instructions "Does this module handle graceful shutdown properly?" \
-  --true-desc "Explicitly intercepts SIGINT/SIGTERM and cleans child processes" \
-  --false-desc "Drops immediately or leaves background workers orphaned" \
   --threshold 0.70
 ```
 
@@ -101,8 +109,6 @@ typesafe-judge score \
   --level "Severe: breaking database schema or wire protocol change"
 ```
 
-**Quiet mode:** Returns only the numeric score (e.g. `1.15`).
-
 ---
 
 ### D. `diff` — Pre-Commit Verification Gate
@@ -116,35 +122,33 @@ typesafe-judge diff --prompt "Implement TOTP token validation" --untracked
 typesafe-judge diff --prompt "Fix memory leak" --revision "HEAD~1..HEAD" --path "src/core/"
 ```
 
-Evaluates 3 dimensions simultaneously:
-1. `fulfills_prompt`: Does the diff directly satisfy requirements? ($P \ge 0.65$)
-2. `is_scope_clean`: Is the diff disciplined with zero scope creep? ($P \ge 0.50$)
-3. `regression_risk`: Score ($< 1.50$)
+Returns structured JSON with pass/fail verdict and metrics:
+```json
+{
+  "gate": {
+    "passed": true,
+    "verdict": "PASS",
+    "metrics": {
+      "fulfills_prompt": 0.92,
+      "is_scope_clean": 0.88,
+      "regression_risk": 0.59
+    },
+    "elapsed_ms": 495
+  },
+  "model": "jev-1.13.0",
+  "answers": { ... }
+}
+```
 
 Exits `0` on pass, `1` on failure.
 
 ---
 
-## 3. Workflow Recipes
-
-### Recipe 1: Debugging Hypothesis Elimination
-When facing an elusive bug, state the error log and query Jev to rank hypotheses:
-```bash
-typesafe-judge choice \
-  --file /tmp/error.log \
-  --instructions "Which root cause is most probable given this stack trace and log context?" \
-  --option "race_condition:Async task finishes after socket is closed" \
-  --option "buffer_overflow:Incoming frame exceeds 64KiB buffer allocation" \
-  --option "auth_timeout:Token expires before handshake completes"
-```
-
-### Recipe 2: Verification Gate Before Handoff
-Before ending a coding task, run:
-```bash
-git diff | typesafe-judge diff --prompt "<what user asked>" || {
-  echo "Verification failed! Check scope or missing requirements."
-}
-```
+## 3. Output Flags
+- **Default**: Standard, clean JSON. Perfect for agents to parse and reason over directly.
+- **`--compact`**: Single-line minified JSON for minimal token footprint.
+- **`-q` / `--quiet`**: Returns only the scalar value (e.g. `arc_swap` or `0.990`) for shell script variable assignment.
+- **`--pretty`**: Visual ANSI progress bars for human eyes in interactive terminals.
 
 ---
 

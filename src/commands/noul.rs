@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::{print_compact_summary, print_pretty_summary};
+use crate::formatter::print_pretty_summary;
 use crate::input::resolve_state;
 use crate::models::{Answer, NoulCriteria, NoulQuestion, Question, SystemOneRequest};
 
@@ -32,7 +32,7 @@ pub struct NoulArgs {
     pub quiet: bool,
 
     #[arg(long)]
-    pub json: bool,
+    pub compact: bool,
 }
 
 pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
@@ -63,31 +63,37 @@ pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, prett
 
     let (res, elapsed) = client.evaluate(&req).await?;
 
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&res)?);
-        if let Some(Answer::Noul(noul)) = res.answers.get("noul") {
-            if noul.noul < args.threshold {
-                std::process::exit(1);
-            }
-        }
-        return Ok(());
-    }
-
     let prob = if let Some(Answer::Noul(noul)) = res.answers.get("noul") {
         noul.noul
     } else {
         bail!("Missing noul answer in response");
     };
 
+    let passed = prob >= args.threshold;
+
     if args.quiet {
         println!("{:.3}", prob);
-    } else if pretty {
-        print_pretty_summary(&res, elapsed);
-    } else {
-        print_compact_summary(&res, elapsed);
+        if !passed {
+            std::process::exit(1);
+        }
+        return Ok(());
     }
 
-    if prob < args.threshold {
+    if pretty {
+        print_pretty_summary(&res, elapsed);
+        if !passed {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    if args.compact {
+        println!("{}", serde_json::to_string(&res)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&res)?);
+    }
+
+    if !passed {
         std::process::exit(1);
     }
 

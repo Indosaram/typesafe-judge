@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::{print_compact_summary, print_pretty_summary};
+use crate::formatter::print_pretty_summary;
 use crate::models::SystemOneRequest;
 
 #[derive(Args, Debug)]
@@ -13,7 +13,7 @@ pub struct EvalArgs {
     pub file: Option<PathBuf>,
 
     #[arg(long)]
-    pub json: bool,
+    pub compact: bool,
 }
 
 pub async fn execute(args: EvalArgs, client: &TypeSafeClient, default_model: &str, pretty: bool) -> Result<()> {
@@ -37,15 +37,15 @@ pub async fn execute(args: EvalArgs, client: &TypeSafeClient, default_model: &st
 
     let (res, elapsed) = client.evaluate(&req).await?;
 
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&res)?);
+    if pretty {
+        print_pretty_summary(&res, elapsed);
         return Ok(());
     }
 
-    if pretty {
-        print_pretty_summary(&res, elapsed);
+    if args.compact {
+        println!("{}", serde_json::to_string(&res)?);
     } else {
-        print_compact_summary(&res, elapsed);
+        println!("{}", serde_json::to_string_pretty(&res)?);
     }
 
     Ok(())
