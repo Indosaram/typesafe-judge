@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::*;
 use std::collections::HashMap;
-use std::io::{self, Read, IsTerminal};
+use std::io::{self, IsTerminal, Read};
 use std::process::Command;
 
 use crate::client::TypeSafeClient;
@@ -19,6 +19,24 @@ pub struct DiffArgs {
     #[arg(long)]
     pub staged: bool,
 
+    #[arg(long)]
+    pub untracked: bool,
+
+    #[arg(short, long)]
+    pub revision: Option<String>,
+
+    #[arg(long)]
+    pub path: Option<String>,
+
+    #[arg(long, default_value_t = 0.65)]
+    pub fulfills_threshold: f64,
+
+    #[arg(long, default_value_t = 0.50)]
+    pub clean_threshold: f64,
+
+    #[arg(long, default_value_t = 1.50)]
+    pub max_risk: f64,
+
     #[arg(short, long)]
     pub quiet: bool,
 
@@ -26,11 +44,20 @@ pub struct DiffArgs {
     pub json: bool,
 }
 
-fn get_git_diff(staged: bool) -> Result<String> {
+fn get_git_diff(staged: bool, revision: Option<&str>, path_filter: Option<&str>, include_untracked: bool) -> Result<String> {
     let mut cmd = Command::new("git");
     cmd.arg("diff");
+
     if staged {
         cmd.arg("--staged");
+    }
+
+    if let Some(rev) = revision {
+        cmd.arg(rev);
+    }
+
+    if let Some(p) = path_filter {
+        cmd.arg("--").arg(p);
     }
 
     let output = cmd.output().context("Failed to execute git diff")?;
@@ -39,7 +66,24 @@ fn get_git_diff(staged: bool) -> Result<String> {
         bail!("git diff failed: {}", err);
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let mut diff_text = String::from_utf8_lossy(&output.stdout).to_string();
+
+    if include_untracked {
+        let mut untracked_cmd = Command::new("git");
+        untracked_cmd.args(["ls-files", "--others", "--exclude-standard"]);
+        if let Ok(untracked_out) = untracked_cmd.output() {
+            let files_str = String::from_utf8_lossy(&untracked_out.stdout);
+            let untracked_files: Vec<&str> = files_str.lines().filter(|l| !l.trim().is_empty()).collect();
+            if !untracked_files.is_empty() {
+                diff_text.push_str("\n\n--- Untracked Files ---\n");
+                for f in untracked_files {
+                    diff_text.push_str(&format!("Untracked: {}\n", f));
+                }
+            }
+        }
+    }
+
+    Ok(diff_text)
 }
 
 pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Result<()> {
@@ -49,16 +93,16 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Re
         let mut handle = stdin.lock();
         handle.read_to_string(&mut buffer)?;
         if buffer.trim().is_empty() {
-            get_git_diff(args.staged)?
+            get_git_diff(args.staged, args.revision.as_deref(), args.path.as_deref(), args.untracked)?
         } else {
             buffer
         }
     } else {
-        get_git_diff(args.staged)?
+        get_git_diff(args.staged, args.revision.as_deref(), args.path.as_deref(), args.untracked)?
     };
 
     if diff_text.trim().is_empty() {
-        bail!("No git diff found to evaluate. Working directory appears clean.");
+        bail!("No git diff found to evaluate. Working tree appears clean.");
     }
 
     let state = serde_json::json!({
@@ -123,28 +167,6 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Re
         return Ok(());
     }
 
-    if args.quiet {
-        let fulfills = match res.answers.get("fulfills_prompt") {
-            Some(Answer::Noul(n)) => n.noul,
-            _ => 0.0,
-        };
-        let clean = match res.answers.get("is_scope_clean") {
-            Some(Answer::Noul(n)) => n.noul,
-            _ => 0.0,
-        };
-        let risk = match res.answers.get("regression_risk") {
-            Some(Answer::Score(s)) => s.score,
-            _ => 2.0,
-        };
-        println!("fulfills={:.2} clean={:.2} risk={:.2}", fulfills, clean, risk);
-        if fulfills < 0.65 || clean < 0.50 || risk >= 1.5 {
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
-
-    print_response_summary(&res, elapsed);
-
     let fulfills = match res.answers.get("fulfills_prompt") {
         Some(Answer::Noul(n)) => n.noul,
         _ => 0.0,
@@ -158,7 +180,17 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Re
         _ => 2.0,
     };
 
-    let passed = fulfills >= 0.65 && clean >= 0.50 && risk < 1.5;
+    if args.quiet {
+        println!("fulfills={:.2} clean={:.2} risk={:.2}", fulfills, clean, risk);
+        if fulfills < args.fulfills_threshold || clean < args.clean_threshold || risk >= args.max_risk {
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    print_response_summary(&res, elapsed);
+
+    let passed = fulfills >= args.fulfills_threshold && clean >= args.clean_threshold && risk < args.max_risk;
     println!();
     if passed {
         println!("{}", "✔ Verification Gate Passed: Changes are ready to ship.".bright_green().bold());
