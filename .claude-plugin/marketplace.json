@@ -1,0 +1,11 @@
+{
+  "name": "typesafe-ai",
+  "description": "Fast TypeSafe System One (Jev) decision engine via typesafe-judge CLI",
+  "plugins": [
+    {
+      "name": "typesafe",
+      "source": "https://github.com/Indosaram/typesafe-judge.git",
+      "description": "Agent skill for fast TypeSafe System One (Jev) judgments via typesafe-judge CLI."
+    }
+  ]
+}

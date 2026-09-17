@@ -16,7 +16,9 @@ Instead of waiting for slow, expensive, and uncalibrated text generation from au
 
 ## Installation
 
-### From Source
+### 1. CLI Binary
+
+From source with Cargo:
 
 ```bash
 cargo install --path .
@@ -27,6 +29,19 @@ Or build the release binary:
 ```bash
 cargo build --release
 cp target/release/typesafe-judge ~/.cargo/bin/ # or ~/.omo/bin/
+```
+
+### 2. Agent Skill (`typesafe-ai`)
+
+Install this skill into any coding agent (Claude Code, Cursor, OMO, Codex, Windsurf) via `skills.sh`:
+
+```bash
+# In Claude Code:
+claude plugin marketplace add Indosaram/typesafe-judge
+claude plugin install typesafe@typesafe-ai
+
+# In OMO / Codex / Cursor / other agents:
+npx skills add Indosaram/typesafe-judge --skill typesafe-ai -g
 ```
 
 ### Configuration

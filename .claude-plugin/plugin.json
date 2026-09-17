@@ -1,0 +1,12 @@
+{
+  "name": "typesafe",
+  "version": "0.1.0",
+  "description": "Agent skill for fast TypeSafe System One (Jev) judgments via typesafe-judge CLI.",
+  "author": {
+    "name": "Indo Yoon",
+    "url": "https://github.com/Indosaram"
+  },
+  "homepage": "https://github.com/Indosaram/typesafe-judge",
+  "repository": "https://github.com/Indosaram/typesafe-judge",
+  "license": "MIT"
+}
