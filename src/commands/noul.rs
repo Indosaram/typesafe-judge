@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::print_response_summary;
+use crate::formatter::{print_compact_summary, print_pretty_summary};
 use crate::input::resolve_state;
 use crate::models::{Answer, NoulCriteria, NoulQuestion, Question, SystemOneRequest};
 
@@ -35,7 +35,7 @@ pub struct NoulArgs {
     pub json: bool,
 }
 
-pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str) -> Result<()> {
+pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
     let state = resolve_state(args.state, args.file)?;
 
     let criteria = if args.true_desc.is_some() || args.false_desc.is_some() {
@@ -81,8 +81,10 @@ pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str) -> Re
 
     if args.quiet {
         println!("{:.3}", prob);
+    } else if pretty {
+        print_pretty_summary(&res, elapsed);
     } else {
-        print_response_summary(&res, elapsed);
+        print_compact_summary(&res, elapsed);
     }
 
     if prob < args.threshold {

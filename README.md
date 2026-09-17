@@ -9,7 +9,14 @@ Instead of waiting for slow, expensive, and uncalibrated text generation from au
 - **Blazingly Fast**: Returns in ~200–500ms with zero token generation latency.
 - **Calibrated Probabilities**: True mathematical probabilities ($0.0 \dots 1.0$) and confidence metrics.
 - **Git Diff Gate**: Automatic CI / pre-commit verification checking prompt fulfillment, scope cleanliness, and regression risk.
-- **Rich ANSI & Scripting Support**: Formatted terminal output with probability bars and confidence badges, or `--quiet` / `--json` for scripts and pipe workflows.
+## Output Modes (Token Optimization)
+
+By default, `typesafe-judge` outputs a **dense, single-line format** specifically optimized to save LLM context window tokens:
+
+- **Default (Compact)**: 1 single line containing all key decision metrics (~10–25 tokens instead of 250+ tokens).
+- **`--quiet` / `-q`**: Zero-noise output returning only the raw value (e.g. `0.990` or `arc_swap`). Ideal for shell script variables.
+- **`--json`**: Structured JSON payload for programmatic consumption.
+- **`--pretty`**: Visual ANSI colors with Unicode progress bars for human interactive terminals.
 - **Exit Code Integration**: Noul and Diff commands exit with code `0` (pass) or `1` (fail) based on thresholds, making them one-line gates for bash pipelines.
 
 ---

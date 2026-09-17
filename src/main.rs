@@ -26,6 +26,9 @@ struct Cli {
     #[arg(long, global = true)]
     url: Option<String>,
 
+    #[arg(long, global = true)]
+    pretty: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -46,10 +49,10 @@ async fn main() -> Result<()> {
     let client = TypeSafeClient::new(cli.api_key, cli.url)?;
 
     match cli.command {
-        Commands::Choice(args) => choice::execute(args, &client, &cli.model).await,
-        Commands::Noul(args) => noul::execute(args, &client, &cli.model).await,
-        Commands::Score(args) => score::execute(args, &client, &cli.model).await,
-        Commands::Diff(args) => diff::execute(args, &client, &cli.model).await,
-        Commands::Eval(args) => eval::execute(args, &client, &cli.model).await,
+        Commands::Choice(args) => choice::execute(args, &client, &cli.model, cli.pretty).await,
+        Commands::Noul(args) => noul::execute(args, &client, &cli.model, cli.pretty).await,
+        Commands::Score(args) => score::execute(args, &client, &cli.model, cli.pretty).await,
+        Commands::Diff(args) => diff::execute(args, &client, &cli.model, cli.pretty).await,
+        Commands::Eval(args) => eval::execute(args, &client, &cli.model, cli.pretty).await,
     }
 }

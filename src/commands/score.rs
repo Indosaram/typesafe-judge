@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::print_response_summary;
+use crate::formatter::{print_compact_summary, print_pretty_summary};
 use crate::input::resolve_state;
 use crate::models::{Answer, Question, ScoreQuestion, SystemOneRequest};
 
@@ -29,7 +29,7 @@ pub struct ScoreArgs {
     pub json: bool,
 }
 
-pub async fn execute(args: ScoreArgs, client: &TypeSafeClient, model: &str) -> Result<()> {
+pub async fn execute(args: ScoreArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
     if args.levels.len() < 2 {
         bail!("At least 2 levels are required for a score question.");
     }
@@ -64,6 +64,11 @@ pub async fn execute(args: ScoreArgs, client: &TypeSafeClient, model: &str) -> R
         return Ok(());
     }
 
-    print_response_summary(&res, elapsed);
+    if pretty {
+        print_pretty_summary(&res, elapsed);
+    } else {
+        print_compact_summary(&res, elapsed);
+    }
+
     Ok(())
 }

@@ -6,7 +6,7 @@ use std::io::{self, IsTerminal, Read};
 use std::process::Command;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::print_response_summary;
+use crate::formatter::print_pretty_summary;
 use crate::models::{
     Answer, NoulCriteria, NoulQuestion, Question, ScoreQuestion, SystemOneRequest,
 };
@@ -86,7 +86,7 @@ fn get_git_diff(staged: bool, revision: Option<&str>, path_filter: Option<&str>,
     Ok(diff_text)
 }
 
-pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Result<()> {
+pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
     let diff_text = if !io::stdin().is_terminal() {
         let mut buffer = String::new();
         let stdin = io::stdin();
@@ -180,23 +180,55 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str) -> Re
         _ => 2.0,
     };
 
+    let fulfills_ok = fulfills >= args.fulfills_threshold;
+    let clean_ok = clean >= args.clean_threshold;
+    let risk_ok = risk < args.max_risk;
+    let passed = fulfills_ok && clean_ok && risk_ok;
+
     if args.quiet {
         println!("fulfills={:.2} clean={:.2} risk={:.2}", fulfills, clean, risk);
-        if fulfills < args.fulfills_threshold || clean < args.clean_threshold || risk >= args.max_risk {
+        if !passed {
             std::process::exit(1);
         }
         return Ok(());
     }
 
-    print_response_summary(&res, elapsed);
-
-    let passed = fulfills >= args.fulfills_threshold && clean >= args.clean_threshold && risk < args.max_risk;
-    println!();
-    if passed {
-        println!("{}", "✔ Verification Gate Passed: Changes are ready to ship.".bright_green().bold());
+    if pretty {
+        print_pretty_summary(&res, elapsed);
+        println!();
+        if passed {
+            println!("{}", "✔ Verification Gate Passed: Changes are ready to ship.".bright_green().bold());
+        } else {
+            println!("{}", "✘ Verification Gate Failed: Address issues before shipping.".bright_red().bold());
+            std::process::exit(1);
+        }
     } else {
-        println!("{}", "✘ Verification Gate Failed: Address issues before shipping.".bright_red().bold());
-        std::process::exit(1);
+        if passed {
+            println!(
+                "DIFF GATE ✔ PASS: fulfills={:.2}, clean={:.2}, risk={:.2} [{}ms]",
+                fulfills, clean, risk, elapsed
+            );
+        } else {
+            let mut failures = Vec::new();
+            if !fulfills_ok {
+                failures.push(format!("fulfills={:.2} (< {:.2})", fulfills, args.fulfills_threshold));
+            }
+            if !clean_ok {
+                failures.push(format!("clean={:.2} (< {:.2})", clean, args.clean_threshold));
+            }
+            if !risk_ok {
+                failures.push(format!("risk={:.2} (>= {:.2})", risk, args.max_risk));
+            }
+            println!(
+                "DIFF GATE ✘ FAIL [{}]: fulfills={:.2}, clean={:.2}, risk={:.2} [{}ms]",
+                failures.join(", "),
+                fulfills,
+                clean,
+                risk,
+                elapsed
+            );
+            std::process::exit(1);
+        }
     }
 
     Ok(())

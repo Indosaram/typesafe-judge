@@ -59,10 +59,11 @@ typesafe-judge choice \
   --option "actor:Channel-based single worker actor"
 ```
 
-**Quiet mode (extracts winner string for shell scripts / subagent branching):**
-```bash
-BEST=$(typesafe-judge choice --file ... -o "..." -o "..." -q)
-```
+### Output & Token Discipline
+By default, `typesafe-judge` outputs a **dense single-line format** (~10–25 tokens) to prevent LLM context bloating.
+- **Default (Compact)**: `CHOICE [choice] opt (p=94%, conf=0.92) | other=0.06 [500ms]`
+- **Quiet (`-q`)**: Returns only the winning value (`arc_swap`, `0.990`). Use this when setting shell variables.
+- **Visual (`--pretty`)**: Use only when interactive visual progress bars are requested by a human.
 
 **Confidence Routing Rules:**
 - `confidence >= 0.85`: High confidence. Proceed immediately with implementation.

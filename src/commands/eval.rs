@@ -4,7 +4,7 @@ use std::io::{self, Read};
 use std::path::PathBuf;
 
 use crate::client::TypeSafeClient;
-use crate::formatter::print_response_summary;
+use crate::formatter::{print_compact_summary, print_pretty_summary};
 use crate::models::SystemOneRequest;
 
 #[derive(Args, Debug)]
@@ -16,7 +16,7 @@ pub struct EvalArgs {
     pub json: bool,
 }
 
-pub async fn execute(args: EvalArgs, client: &TypeSafeClient, default_model: &str) -> Result<()> {
+pub async fn execute(args: EvalArgs, client: &TypeSafeClient, default_model: &str, pretty: bool) -> Result<()> {
     let raw_json = if let Some(path) = args.file {
         std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read JSON file at {:?}", path))?
@@ -42,6 +42,11 @@ pub async fn execute(args: EvalArgs, client: &TypeSafeClient, default_model: &st
         return Ok(());
     }
 
-    print_response_summary(&res, elapsed);
+    if pretty {
+        print_pretty_summary(&res, elapsed);
+    } else {
+        print_compact_summary(&res, elapsed);
+    }
+
     Ok(())
 }
