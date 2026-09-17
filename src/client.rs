@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 
-use crate::models::{SystemOneRequest, SystemOneResponse};
+use crate::models::SystemOneRequest;
 
 const DEFAULT_API_URL: &str = "https://api.typesafe.ai/v1/systemone";
 const MAX_RETRIES: u32 = 3;
@@ -96,7 +96,7 @@ impl TypeSafeClient {
         })
     }
 
-    pub async fn evaluate(&self, request: &SystemOneRequest) -> Result<(SystemOneResponse, u128)> {
+    pub async fn evaluate_raw(&self, request: &SystemOneRequest) -> Result<(String, u128)> {
         let start = Instant::now();
         let mut attempts = 0;
         let mut delay = Duration::from_millis(500);
@@ -124,22 +124,17 @@ impl TypeSafeClient {
             }
 
             let elapsed = start.elapsed().as_millis();
+            let raw_text = resp.text().await.context("Failed to read response body")?;
 
             if !status.is_success() {
-                let error_body = resp.text().await.unwrap_or_default();
                 return Err(anyhow!(
                     "TypeSafe API returned error {}: {}",
                     status,
-                    error_body
+                    raw_text
                 ));
             }
 
-            let body: SystemOneResponse = resp
-                .json()
-                .await
-                .context("Failed to parse TypeSafe API response")?;
-
-            return Ok((body, elapsed));
+            return Ok((raw_text, elapsed));
         }
     }
 }

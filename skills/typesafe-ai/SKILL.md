@@ -4,7 +4,7 @@ license: MIT
 description: >
   Execute high-confidence coding decisions with TypeSafe System One (Jev) via
   the typesafe-judge CLI. Use for architecture choices, debugging hypothesis
-  ranking, and git diff verification gates returning structured JSON.
+  ranking, and git diff verification gates returning verbatim raw JSON.
 ---
 
 # TypeSafe AI (`typesafe-judge` CLI)
@@ -16,7 +16,7 @@ probabilities and typed decisions in milliseconds rather than generating text.
 **PRIMARY DIRECTIVE**:
 Do NOT write ad-hoc HTTP `fetch` scripts or install SDKs.
 Invoke the globally installed **`typesafe-judge`** CLI binary directly via tool execution.
-All commands output **clean, structured JSON by default** for seamless agent consumption.
+All commands output the **verbatim raw JSON response directly from the TypeSafe API** by default.
 
 ---
 
@@ -49,7 +49,7 @@ git diff | typesafe-judge diff --prompt "Refactor auth"
 ---
 
 ### A. `choice` — Multi-Candidate Architecture Selection
-Picks the best candidate and outputs standard TypeSafe JSON:
+Picks the best candidate and outputs verbatim TypeSafe wire JSON:
 
 ```bash
 typesafe-judge choice \
@@ -60,19 +60,9 @@ typesafe-judge choice \
   --option "actor:Channel-based single worker actor"
 ```
 
-**JSON Output:**
+**Verbatim Wire Output:**
 ```json
-{
-  "model": "jev-1.13.0",
-  "answers": {
-    "choice": {
-      "type": "choice",
-      "choice": "arc_swap",
-      "confidence": 0.99,
-      "probabilities": { "arc_swap": 1.0, "rwlock": 0.0, "actor": 0.0 }
-    }
-  }
-}
+{"model":"jev-1.13.0","answers":{"choice":{"type":"choice","choice":"arc_swap","confidence":0.99,"probabilities":{"arc_swap":1.0,"rwlock":0.0,"actor":0.0}}},"usage":{"input_tokens":316,"output_tokens":34}}
 ```
 
 **Confidence Routing Rules:**
@@ -122,31 +112,12 @@ typesafe-judge diff --prompt "Implement TOTP token validation" --untracked
 typesafe-judge diff --prompt "Fix memory leak" --revision "HEAD~1..HEAD" --path "src/core/"
 ```
 
-Returns structured JSON with pass/fail verdict and metrics:
-```json
-{
-  "gate": {
-    "passed": true,
-    "verdict": "PASS",
-    "metrics": {
-      "fulfills_prompt": 0.92,
-      "is_scope_clean": 0.88,
-      "regression_risk": 0.59
-    },
-    "elapsed_ms": 495
-  },
-  "model": "jev-1.13.0",
-  "answers": { ... }
-}
-```
-
-Exits `0` on pass, `1` on failure.
+Outputs verbatim raw JSON to stdout. Exits with status `0` on pass, `1` on failure (failure diagnostics output to stderr).
 
 ---
 
-## 3. Output Flags
-- **Default**: Standard, clean JSON. Perfect for agents to parse and reason over directly.
-- **`--compact`**: Single-line minified JSON for minimal token footprint.
+## 3. Output Modes
+- **Default**: 100% Verbatim raw wire JSON directly from the TypeSafe server. Compact, zero translation loss, zero hallucination.
 - **`-q` / `--quiet`**: Returns only the scalar value (e.g. `arc_swap` or `0.990`) for shell script variable assignment.
 - **`--pretty`**: Visual ANSI progress bars for human eyes in interactive terminals.
 

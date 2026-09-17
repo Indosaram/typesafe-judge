@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use clap::Args;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::client::TypeSafeClient;
 use crate::formatter::print_pretty_summary;
 use crate::input::resolve_state;
-use crate::models::{Answer, NoulCriteria, NoulQuestion, Question, SystemOneRequest};
+use crate::models::{NoulCriteria, NoulQuestion, Question, SystemOneRequest, SystemOneResponse};
 
 #[derive(Args, Debug)]
 pub struct NoulArgs {
@@ -30,9 +30,6 @@ pub struct NoulArgs {
 
     #[arg(short, long)]
     pub quiet: bool,
-
-    #[arg(long)]
-    pub compact: bool,
 }
 
 pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
@@ -61,14 +58,10 @@ pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, prett
         questions,
     };
 
-    let (res, elapsed) = client.evaluate(&req).await?;
+    let (raw_text, elapsed) = client.evaluate_raw(&req).await?;
 
-    let prob = if let Some(Answer::Noul(noul)) = res.answers.get("noul") {
-        noul.noul
-    } else {
-        bail!("Missing noul answer in response");
-    };
-
+    let val: serde_json::Value = serde_json::from_str(&raw_text)?;
+    let prob = val["answers"]["noul"]["noul"].as_f64().unwrap_or(0.0);
     let passed = prob >= args.threshold;
 
     if args.quiet {
@@ -80,6 +73,7 @@ pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, prett
     }
 
     if pretty {
+        let res: SystemOneResponse = serde_json::from_str(&raw_text)?;
         print_pretty_summary(&res, elapsed);
         if !passed {
             std::process::exit(1);
@@ -87,11 +81,7 @@ pub async fn execute(args: NoulArgs, client: &TypeSafeClient, model: &str, prett
         return Ok(());
     }
 
-    if args.compact {
-        println!("{}", serde_json::to_string(&res)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&res)?);
-    }
+    println!("{}", raw_text);
 
     if !passed {
         std::process::exit(1);

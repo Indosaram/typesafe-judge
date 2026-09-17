@@ -1,7 +1,6 @@
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use colored::*;
-use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{self, IsTerminal, Read};
 use std::process::Command;
@@ -9,7 +8,7 @@ use std::process::Command;
 use crate::client::TypeSafeClient;
 use crate::formatter::print_pretty_summary;
 use crate::models::{
-    Answer, NoulCriteria, NoulQuestion, Question, ScoreQuestion, SystemOneRequest,
+    NoulCriteria, NoulQuestion, Question, ScoreQuestion, SystemOneRequest,
     SystemOneResponse,
 };
 
@@ -41,33 +40,6 @@ pub struct DiffArgs {
 
     #[arg(short, long)]
     pub quiet: bool,
-
-    #[arg(long)]
-    pub compact: bool,
-}
-
-#[derive(Serialize)]
-pub struct GateResult {
-    pub passed: bool,
-    pub verdict: &'static str,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub failures: Vec<String>,
-    pub metrics: GateMetrics,
-    pub elapsed_ms: u128,
-}
-
-#[derive(Serialize)]
-pub struct GateMetrics {
-    pub fulfills_prompt: f64,
-    pub is_scope_clean: f64,
-    pub regression_risk: f64,
-}
-
-#[derive(Serialize)]
-pub struct DiffResponseEnvelope {
-    pub gate: GateResult,
-    #[serde(flatten)]
-    pub response: SystemOneResponse,
 }
 
 fn get_git_diff(staged: bool, revision: Option<&str>, path_filter: Option<&str>, include_untracked: bool) -> Result<String> {
@@ -186,36 +158,17 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
         questions,
     };
 
-    let (res, elapsed) = client.evaluate(&req).await?;
+    let (raw_text, elapsed) = client.evaluate_raw(&req).await?;
 
-    let fulfills = match res.answers.get("fulfills_prompt") {
-        Some(Answer::Noul(n)) => n.noul,
-        _ => 0.0,
-    };
-    let clean = match res.answers.get("is_scope_clean") {
-        Some(Answer::Noul(n)) => n.noul,
-        _ => 0.0,
-    };
-    let risk = match res.answers.get("regression_risk") {
-        Some(Answer::Score(s)) => s.score,
-        _ => 2.0,
-    };
+    let val: serde_json::Value = serde_json::from_str(&raw_text)?;
+    let fulfills = val["answers"]["fulfills_prompt"]["noul"].as_f64().unwrap_or(0.0);
+    let clean = val["answers"]["is_scope_clean"]["noul"].as_f64().unwrap_or(0.0);
+    let risk = val["answers"]["regression_risk"]["score"].as_f64().unwrap_or(2.0);
 
     let fulfills_ok = fulfills >= args.fulfills_threshold;
     let clean_ok = clean >= args.clean_threshold;
     let risk_ok = risk < args.max_risk;
     let passed = fulfills_ok && clean_ok && risk_ok;
-
-    let mut failures = Vec::new();
-    if !fulfills_ok {
-        failures.push(format!("fulfills_prompt={:.2} (< {:.2})", fulfills, args.fulfills_threshold));
-    }
-    if !clean_ok {
-        failures.push(format!("is_scope_clean={:.2} (< {:.2})", clean, args.clean_threshold));
-    }
-    if !risk_ok {
-        failures.push(format!("regression_risk={:.2} (>= {:.2})", risk, args.max_risk));
-    }
 
     if args.quiet {
         println!("fulfills={:.2} clean={:.2} risk={:.2}", fulfills, clean, risk);
@@ -226,6 +179,7 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
     }
 
     if pretty {
+        let res: SystemOneResponse = serde_json::from_str(&raw_text)?;
         print_pretty_summary(&res, elapsed);
         println!();
         if passed {
@@ -237,28 +191,20 @@ pub async fn execute(args: DiffArgs, client: &TypeSafeClient, model: &str, prett
         return Ok(());
     }
 
-    let envelope = DiffResponseEnvelope {
-        gate: GateResult {
-            passed,
-            verdict: if passed { "PASS" } else { "FAIL" },
-            failures,
-            metrics: GateMetrics {
-                fulfills_prompt: fulfills,
-                is_scope_clean: clean,
-                regression_risk: risk,
-            },
-            elapsed_ms: elapsed,
-        },
-        response: res,
-    };
-
-    if args.compact {
-        println!("{}", serde_json::to_string(&envelope)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&envelope)?);
-    }
+    println!("{}", raw_text);
 
     if !passed {
+        let mut failures = Vec::new();
+        if !fulfills_ok {
+            failures.push(format!("fulfills_prompt={:.2} (< {:.2})", fulfills, args.fulfills_threshold));
+        }
+        if !clean_ok {
+            failures.push(format!("is_scope_clean={:.2} (< {:.2})", clean, args.clean_threshold));
+        }
+        if !risk_ok {
+            failures.push(format!("regression_risk={:.2} (>= {:.2})", risk, args.max_risk));
+        }
+        eprintln!("diff gate failed: {}", failures.join(", "));
         std::process::exit(1);
     }
 

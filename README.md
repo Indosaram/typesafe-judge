@@ -2,13 +2,13 @@
 
 Fast, typed AI decision engine for coding tasks, verification gates, and agent workflows, powered by **TypeSafe System One (`Jev`)**.
 
-Instead of waiting for slow, expensive, and uncalibrated text generation from autoregressive LLMs (System Two), `typesafe-judge` evaluates code state, choices, diffs, and hypotheses to return **calibrated probabilities**, **confidence scores**, and **rigidly typed JSON answers** in milliseconds.
+Instead of waiting for slow, expensive, and uncalibrated text generation from autoregressive LLMs (System Two), `typesafe-judge` evaluates code state, choices, diffs, and hypotheses and outputs the **exact, authentic raw JSON response** from TypeSafe System One in milliseconds.
 
 ## Features
 
 - **Blazingly Fast**: Returns in ~200–500ms with zero token generation latency.
-- **Native JSON First**: Outputs clean, structured JSON by default—100% machine-readable with zero ad-hoc formatting translation.
-- **Git Diff Gate**: Automatic CI / pre-commit verification checking prompt fulfillment, scope cleanliness, and regression risk with structured pass/fail verdict and exit codes.
+- **100% Verbatim Raw Output**: Outputs the exact wire HTTP JSON response directly from `api.typesafe.ai`. Zero re-serialization, zero dropped fields, zero synthetic wrapper noise.
+- **Git Diff Gate**: Automatic CI / pre-commit verification checking prompt fulfillment, scope cleanliness, and regression risk with exit codes (`0` on pass, `1` on fail).
 - **Automatic Key Resolution**: Seamless 4-tier fallback: `--api-key` → `TYPESAFE_API_KEY` env → `.env` file → `~/.config/typesafe/api_key`.
 - **Transient Error Retry**: Automatic exponential backoff on HTTP 429 (rate limits) and 529 (overload).
 - **Human Visual Mode**: Pass `--pretty` when you want colorful ANSI progress bars in an interactive terminal.
@@ -49,12 +49,9 @@ npx skills add Indosaram/typesafe-judge --skill typesafe-ai -g
 
 ## Output Modes
 
-`typesafe-judge` is designed first and foremost for **agents and automated workflows**:
-
-1. **Default (Standard JSON)**: Outputs the full, typed TypeSafe JSON response. Zero translation loss, zero hallucination risk, native for LLM parsing.
-2. **`--compact`**: Outputs single-line minified JSON for minimal token usage.
-3. **`--quiet` / `-q`**: Outputs only the scalar winner or metric (e.g. `sqlite` or `0.990`) for shell script variable assignment.
-4. **`--pretty`**: Visual ANSI colors with progress bars for human eyes in interactive terminals.
+1. **Default (Verbatim Raw JSON)**: Outputs the exact, unmutated wire JSON response body from TypeSafe API. Upstream sends single-line compact JSON, providing minimal token footprint with complete data fidelity.
+2. **`-q` / `--quiet`**: Outputs only the scalar value (e.g. `arc_swap` or `0.980`) for shell script variable assignment.
+3. **`--pretty`**: Visual ANSI progress bars for human eyes in interactive terminals.
 
 ---
 
@@ -73,24 +70,9 @@ typesafe-judge choice \
   --option "mutex:Standard std::sync::Mutex"
 ```
 
-**JSON Output:**
+**Output (Exact wire JSON):**
 ```json
-{
-  "model": "jev-1.13.0",
-  "answers": {
-    "choice": {
-      "type": "choice",
-      "choice": "arc_swap",
-      "confidence": 0.99,
-      "probabilities": {
-        "arc_swap": 1.0,
-        "mutex": 0.0,
-        "rwlock": 0.0
-      }
-    }
-  },
-  "usage": { "input_tokens": 316, "output_tokens": 34 }
-}
+{"model":"jev-1.13.0","answers":{"choice":{"type":"choice","choice":"arc_swap","confidence":0.99,"probabilities":{"arc_swap":1.0,"mutex":0.0,"rwlock":0.0}}},"usage":{"input_tokens":316,"output_tokens":34}}
 ```
 
 ### 2. `noul` — Boolean Condition & Probability Gate
@@ -125,28 +107,8 @@ Pre-commit or CI gate that analyzes the current git diff against a prompt.
 typesafe-judge diff --prompt "Refactor user authentication to support TOTP"
 ```
 
-Queries Jev for:
-1. `fulfills_prompt`: Does the diff satisfy the prompt? ($P \ge 0.65$)
-2. `is_scope_clean`: Is the diff free of unrelated changes and accidental churn? ($P \ge 0.50$)
-3. `regression_risk`: Score ($< 1.5$)
-
-Returns a structured `gate` envelope with verdict and metrics, exiting `0` on pass and `1` on fail:
-```json
-{
-  "gate": {
-    "passed": true,
-    "verdict": "PASS",
-    "metrics": {
-      "fulfills_prompt": 0.92,
-      "is_scope_clean": 0.88,
-      "regression_risk": 0.59
-    },
-    "elapsed_ms": 495
-  },
-  "model": "jev-1.13.0",
-  "answers": { ... }
-}
-```
+Queries Jev for `fulfills_prompt`, `is_scope_clean`, and `regression_risk`.
+Outputs the verbatim wire JSON to stdout and exits with code `0` on pass, `1` on fail.
 
 ---
 

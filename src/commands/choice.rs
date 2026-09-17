@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::client::TypeSafeClient;
 use crate::formatter::print_pretty_summary;
 use crate::input::resolve_state;
-use crate::models::{Answer, ChoiceQuestion, Question, SystemOneRequest};
+use crate::models::{ChoiceQuestion, Question, SystemOneRequest, SystemOneResponse};
 
 #[derive(Args, Debug)]
 pub struct ChoiceArgs {
@@ -24,9 +24,6 @@ pub struct ChoiceArgs {
 
     #[arg(short, long)]
     pub quiet: bool,
-
-    #[arg(long)]
-    pub compact: bool,
 }
 
 pub async fn execute(args: ChoiceArgs, client: &TypeSafeClient, model: &str, pretty: bool) -> Result<()> {
@@ -59,25 +56,22 @@ pub async fn execute(args: ChoiceArgs, client: &TypeSafeClient, model: &str, pre
         questions,
     };
 
-    let (res, elapsed) = client.evaluate(&req).await?;
+    let (raw_text, elapsed) = client.evaluate_raw(&req).await?;
 
     if args.quiet {
-        if let Some(Answer::Choice(choice)) = res.answers.get("choice") {
-            println!("{}", choice.choice);
+        let val: serde_json::Value = serde_json::from_str(&raw_text)?;
+        if let Some(c) = val["answers"]["choice"]["choice"].as_str() {
+            println!("{}", c);
         }
         return Ok(());
     }
 
     if pretty {
+        let res: SystemOneResponse = serde_json::from_str(&raw_text)?;
         print_pretty_summary(&res, elapsed);
         return Ok(());
     }
 
-    if args.compact {
-        println!("{}", serde_json::to_string(&res)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&res)?);
-    }
-
+    println!("{}", raw_text);
     Ok(())
 }
